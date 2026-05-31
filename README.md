@@ -5,6 +5,12 @@ A production-grade, asynchronous, AI-driven video interview platform.
 - **Candidates** receive a UUID link, complete a hardware check, then talk live with an AI interviewer (Deepgram Voice Agent) that asks questions, listens to their answers, and verbally responds with Groq-generated feedback.
 - **Recruiters** create templates, issue interview links, and review per-question video + transcript + AI score + proctoring flags.
 
+
+## Demo video / live link
+
+- [Demo Video](https://drive.google.com/drive/folders/17HXwb-L3OEzs6ABISdgsa0iul7li1YLi)
+- https://intervi-ai.vercel.app/
+
 ---
 
 ## 1. Problem Understanding
@@ -211,7 +217,8 @@ This codebase was built with heavy AI assistance — here's the honest breakdown
 ### Tools used
 - **Claude** for the overall architecture discussion (Voice Agent proxy, the audio worklet, the phase machine in `InterviewPage`).
 - Documentation lookups for the **Deepgram Voice Agent** WS protocol and **BullMQ + Upstash** TLS quirks.
-- Generate the approach
+- Generate the approach.
+- To get familiar with Redis, BullMQ Worker, AWS, ffmpeg, and dive deep into AI Engineering.
 - **Claude Sonnet, llama** for the scaffolding, debug logs and tell the exact causes to every bug.
 
 ### Prompts / thought process
@@ -265,11 +272,6 @@ npm run dev                # vite dev server on :5173
 ```
 
 Open `http://localhost:5173/recruiter/login`, create an account, create a template, create an interview link, open the link in another browser, complete the interview, watch it process.
-
-### Demo video / live link
-
-- [Demo Video](https://drive.google.com/file/d/1kihRKc4v7Y-hckRVDgmpgcRtm9yJhmQg/view?usp=sharing)
-- https://intervi-ai.vercel.app/
 
 ### System walkthrough
 - **Recruiter creates template + interview** → dashboard shows the row in `pending`.
