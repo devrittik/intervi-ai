@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AI Interview — processing queue.
+  Provisions: SQS queue + DLQ + Lambda function (FFmpeg merge + Groq scoring).
+
+Parameters:
+  StackEnv:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment label, used in queue names.
+
+  MongoDBUri:
+    Type: String
+    NoEcho: true
+    Description: Mongoose connection string (mongodb+srv://...).
+
+  GroqApiKey:
+    Type: String
+    NoEcho: true
+    Description: Groq API key (gsk_...).
+
+  AwsS3Bucket:
+    Type: String
+    Description: S3 bucket name where chunks + merged.webm live.
+
+  FFmpegLayerArn:
+    Type: String
+    Default: ''
+    Description: >
+      ARN of a Lambda layer providing /opt/bin/ffmpeg.
+      Public layer suggestion: https://github.com/serverlesspub/ffmpeg-aws-lambda-layer
+      Leave empty if your function image already includes ffmpeg.
+
+Conditions:
+  HasFFmpegLayer: !Not [!Equals [!Ref FFmpegLayerArn, '']]
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures: [x86_64]
+    MemorySize: 3008                # ~2 vCPU — enough headroom for ffmpeg remux
+    Timeout: 600                    # 10 min; merge + Groq normally finishes in <30s
+    Tracing: Active
+    Environment:
+      Variables:
+        NODE_ENV: production
+        # The Lambda doesn't enqueue jobs; it only consumes them. So it doesn't
+        # need QUEUE_DRIVER — handler.js + dependencies use the same code regardless.
+        MONGODB_URI: !Ref MongoDBUri
+        GROQ_API_KEY: !Ref GroqApiKey
+        AWS_S3_BUCKET: !Ref AwsS3Bucket
+        # If you attach the recommended ffmpeg layer, its binary lives at /opt/bin/ffmpeg
+        FFMPEG_PATH: /opt/bin/ffmpeg
+
+Resources:
+
+  # ───────────────────────── SQS ─────────────────────────
+
+  ProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'ai-interview-processing-dlq-${StackEnv}'
+      MessageRetentionPeriod: 1209600   # 14 days
+
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'ai-interview-processing-${StackEnv}'
+      # Visibility timeout MUST be >= function Timeout, otherwise SQS will
+      # redeliver an in-flight message and you'll get duplicate executions.
+      VisibilityTimeout: 660            # function Timeout (600) + 60s safety margin
+      MessageRetentionPeriod: 345600    # 4 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProcessingDLQ.Arn
+        maxReceiveCount: 5              # mirrors BullMQ `attempts: 5`
+
+  # ───────────────────────── Lambda ─────────────────────────
+
+  ProcessingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ai-interview-processing-${StackEnv}'
+      Description: Merges WebM chunks with FFmpeg + scores answers with Groq.
+      Handler: index.handler
+      CodeUri: ../dist/lambda.zip      # produced by server/lambda/build.sh
+      Layers:
+        - !If
+          - HasFFmpegLayer
+          - !Ref FFmpegLayerArn
+          - !Ref AWS::NoValue
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            # Read/write chunks + merged outputs.
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - !Sub 'arn:aws:s3:::${AwsS3Bucket}'
+                - !Sub 'arn:aws:s3:::${AwsS3Bucket}/*'
+            # Consume from the processing queue.
+            - Effect: Allow
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+                - sqs:ChangeMessageVisibility
+              Resource: !GetAtt ProcessingQueue.Arn
+      Events:
+        ProcessingEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ProcessingQueue.Arn
+            BatchSize: 1                # one session per invocation — simpler ownership
+            # When the function returns batchItemFailures, SQS only retries those.
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            MaximumBatchingWindowInSeconds: 0
+
+Outputs:
+  ProcessingQueueUrl:
+    Description: URL to set as AWS_SQS_QUEUE_URL in the API server's .env (when QUEUE_DRIVER=sqs).
+    Value: !Ref ProcessingQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessingQueueUrl'
+
+  ProcessingQueueArn:
+    Value: !GetAtt ProcessingQueue.Arn
+
+  ProcessingDLQUrl:
+    Description: Inspect failed jobs here.
+    Value: !Ref ProcessingDLQ
+
+  ProcessingFunctionName:
+    Value: !Ref ProcessingFunction
