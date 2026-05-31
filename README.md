@@ -209,8 +209,10 @@ All proctoring events go through `Socket.IO` to a single sink (`ProctoringEvent`
 This codebase was built with heavy AI assistance — here's the honest breakdown.
 
 ### Tools used
-- **Claude (this assistant)** for the bulk of the scaffolding and the harder integration code (Voice Agent proxy, the audio worklet, the phase machine in `InterviewPage`).
+- **Claude** for the overall architecture discussion (Voice Agent proxy, the audio worklet, the phase machine in `InterviewPage`).
 - Documentation lookups for the **Deepgram Voice Agent** WS protocol and **BullMQ + Upstash** TLS quirks.
+- Generate the approach
+- **Claude Sonnet, llama** for the scaffolding, debug logs and tell the exact causes to every bug.
 
 ### Prompts / thought process
 - We started with a tight, opinionated spec (the one in this README + the original task brief). The AI was given the full spec up front so it could make consistent decisions across modules rather than re-deciding architectures per file.
@@ -218,7 +220,7 @@ This codebase was built with heavy AI assistance — here's the honest breakdown
 - The riskiest part — the Voice Agent message protocol — was written defensively: the hook accepts *several* variants of transcript / speech-state messages, because Deepgram's Voice Agent shapes have shifted across API revisions.
 
 ### What was AI-assisted vs. our decision
-- **Our decisions:** the schema, the deterministic chunk-key convention, the "lock + enqueue atomically" pattern, the choice to do per-question Groq during the interview (not after), the choice to keep MediaRecorder separate from Voice Agent audio capture.
+- **Our decisions:** the schema, the deterministic chunk-key convention, the "lock + enqueue atomically" pattern, the choice to do per-question Groq during the interview (not after), the choice to keep MediaRecorder separate from Voice Agent audio capture, prompt architecture, exact workflow.
 - **AI-assisted:** boilerplate (routes, Mongoose schemas, MUI dialog forms), the audio worklet for PCM downsampling, the dual-channel playback approach in the Voice Agent hook, the ScoreRing SVG component, README structuring.
 
 ---
@@ -265,8 +267,9 @@ npm run dev                # vite dev server on :5173
 Open `http://localhost:5173/recruiter/login`, create an account, create a template, create an interview link, open the link in another browser, complete the interview, watch it process.
 
 ### Demo video / live link
-- *(insert demo video URL here)*
-- *(insert live demo URL here, if deployed)*
+
+- [Demo Video](https://drive.google.com/file/d/1kihRKc4v7Y-hckRVDgmpgcRtm9yJhmQg/view?usp=sharing)
+- https://intervi-ai.vercel.app/
 
 ### System walkthrough
 - **Recruiter creates template + interview** → dashboard shows the row in `pending`.
